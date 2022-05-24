@@ -16,6 +16,8 @@
     <Compile Include="$(SharedSourceRoot)CommandLineUtils\**\*.cs" />
     <Compile Include="$(SharedSourceRoot)CertificateGeneration\**\*.cs" />
     <Compile Include="$(ToolSharedSourceRoot)CommandLine\**\*.cs" />
+
+    <EmbeddedResource Include="scripts\**" />
   </ItemGroup>
 
 </Project>
