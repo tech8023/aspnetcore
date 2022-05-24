@@ -182,20 +182,14 @@ internal sealed class UnixCertificateManager : CertificateManager
                 return;
             }
 
-            File.Delete(installedCertificate);
-            using var program = Process.Start("sudo", $"c_rehash");
-            program.WaitForExit();
+            using var delete = Process.Start("sudo", $"rm {installedCertificate}");
+            delete.WaitForExit();
+            using var rehash = Process.Start("sudo", $"c_rehash");
+            rehash.WaitForExit();
         }
         catch (Exception)
         {
             throw;
-        }
-        finally
-        {
-            if (File.Exists(installedCertificate))
-            {
-                File.Delete(installedCertificate);
-            }
         }
     }
 
