@@ -296,32 +296,21 @@ internal sealed class Program
 
         if (trust != null && trust.HasValue())
         {
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            var trustedCertificates = certificates.Where(c => certificateManager.IsTrusted(c)).ToList();
+            if (!trustedCertificates.Any())
             {
-                var trustedCertificates = certificates.Where(c => certificateManager.IsTrusted(c)).ToList();
-                if (!trustedCertificates.Any())
-                {
-                    reporter.Output($@"The following certificates were found, but none of them is trusted: {CertificateManager.ToCertificateDescription(certificates)}");
-                    return ErrorCertificateNotTrusted;
-                }
-                else
-                {
-                    ReportCertificates(reporter, trustedCertificates, "trusted");
-                }
+                reporter.Output($@"The following certificates were found, but none of them is trusted: {CertificateManager.ToCertificateDescription(certificates)}");
+                return ErrorCertificateNotTrusted;
             }
             else
             {
-                reporter.Warn("Checking the HTTPS development certificate trust status was requested. Checking whether the certificate is trusted or not is not supported on Linux distributions." +
-                    "For instructions on how to manually validate the certificate is trusted on your Linux distribution, go to https://aka.ms/dev-certs-trust");
+                ReportCertificates(reporter, trustedCertificates, "trusted");
             }
-        }
+    }
         else
         {
             ReportCertificates(reporter, validCertificates, "valid");
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            {
-                reporter.Output("Run the command with both --check and --trust options to ensure that the certificate is not only valid but also trusted.");
-            }
+            reporter.Output("Run the command with both --check and --trust options to ensure that the certificate is not only valid but also trusted.");
         }
 
         return Success;
