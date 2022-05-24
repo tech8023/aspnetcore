@@ -139,7 +139,18 @@ internal sealed class UnixCertificateManager : CertificateManager
 
     private static string GetFirefoxCertificateDbDirectory()
     {
-        return Directory.EnumerateDirectories(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mozilla/firefox/"), "*.default-release").SingleOrDefault();
+        return Directory.EnumerateDirectories(
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mozilla/firefox/"),
+                "*.default-release").SingleOrDefault() ??
+            Directory.EnumerateDirectories(
+                Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "snap/firefox/common/.mozilla/firefox/"),
+                    "*.default-release").SingleOrDefault() ??
+            Directory.EnumerateDirectories(
+                Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "snap/firefox/common/.mozilla/firefox/"),
+                    "*.default").SingleOrDefault();
     }
 
     private static string GetOpenSSLDirectory()
