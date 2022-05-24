@@ -364,12 +364,6 @@ internal sealed class Program
                 reporter.Warn("Trusting the HTTPS development certificate was requested. A confirmation prompt will be displayed " +
                     "if the certificate was not previously trusted. Click yes on the prompt to trust the certificate.");
             }
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            {
-                reporter.Warn("Trusting the HTTPS development certificate was requested. Trusting the certificate on Linux distributions automatically is not supported. " +
-                    "For instructions on how to manually trust the certificate on your Linux distribution, go to https://aka.ms/dev-certs-trust");
-            }
         }
 
         var format = CertificateKeyExportFormat.Pfx;
@@ -383,7 +377,7 @@ internal sealed class Program
             now,
             now.Add(HttpsCertificateValidity),
             exportPath.Value(),
-            trust == null ? false : trust.HasValue() && !RuntimeInformation.IsOSPlatform(OSPlatform.Linux),
+            trust == null ? false : trust.HasValue(),
             password.HasValue() || (noPassword.HasValue() && format == CertificateKeyExportFormat.Pem),
             password.Value(),
             exportFormat.HasValue() ? format : CertificateKeyExportFormat.Pfx);
