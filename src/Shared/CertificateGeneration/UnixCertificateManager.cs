@@ -86,7 +86,7 @@ internal sealed class UnixCertificateManager : CertificateManager
         var tempCertificate = Path.Combine(Path.GetTempPath(), $"aspnetcore-localhost-{certificate.Thumbprint}.crt");
         File.WriteAllText(tempCertificate, certificate.ExportCertificatePem());
 
-        var openSSLDirectory = GetOpenSSLDirectory();
+        var openSSLDirectory = Path.Combine(GetOpenSSLDirectory(), "certs");
 
         using var copy = Process.Start("sudo", $"cp {tempCertificate} {openSSLDirectory}");
         copy.WaitForExit();
