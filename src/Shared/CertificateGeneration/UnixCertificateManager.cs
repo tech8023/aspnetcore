@@ -48,29 +48,33 @@ internal sealed class UnixCertificateManager : CertificateManager
             }
         }
 
-        try
+        if (!IsTrustedInNssDb(GetFirefoxCertificateDbDirectory(), certificate))
         {
-            var firefoxDbPath = GetFirefoxCertificateDbDirectory();
-            if (firefoxDbPath != null)
-            {
-                var (exitCode, output) = RunScriptAndCaptureOutput(
-                    "certutil",
-                    $"-L -d sql:{firefoxDbPath}",
-                    $"(?<certificate>aspnetcore-localhost-{certificate.Thumbprint[0..6]})",
-                    "certificate");
-
-                if (exitCode != 0 || string.IsNullOrEmpty(output))
-                {
-                    return false;
-                }
-            }
+            return false;
         }
-        catch (Exception)
+
+        if (!IsTrustedInNssDb(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".pki/nssdb"), certificate))
         {
-            throw;
+            return false;
         }
 
         return true;
+    }
+
+    private static bool IsTrustedInNssDb(string dbPath, X509Certificate2 certificate)
+    {
+        if (dbPath != null)
+        {
+            var (exitCode, output) = RunScriptAndCaptureOutput(
+                "certutil",
+                $"-L -d sql:{dbPath}",
+                $"(?<certificate>aspnetcore-localhost-{certificate.Thumbprint[0..6]})",
+                "certificate");
+
+            return exitCode == 0 && !string.IsNullOrEmpty(output);
+        }
+
+        return false;
     }
 
     protected override X509Certificate2 SaveCertificateCore(X509Certificate2 certificate, StoreName storeName, StoreLocation storeLocation)
@@ -129,11 +133,17 @@ internal sealed class UnixCertificateManager : CertificateManager
         }
 
         var firefoxDbPath = GetFirefoxCertificateDbDirectory();
-        if (firefoxDbPath != null)
+        TrustCertificateInNssDb(firefoxDbPath, certificate, tempCertificate);
+        TrustCertificateInNssDb(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".pki/nssdb"), certificate, tempCertificate);
+    }
+
+    private static void TrustCertificateInNssDb(string dbPath, X509Certificate2 certificate, string certificatePath)
+    {
+        if (dbPath != null)
         {
             RunScriptAndCaptureOutput(
                 "certutil",
-                $"-A -d sql:{firefoxDbPath} -t \"C,,\" -n aspnetcore-localhost-{certificate.Thumbprint[0..6]} -i {tempCertificate}");
+                $"-A -d sql:{dbPath} -t \"C,,\" -n aspnetcore-localhost-{certificate.Thumbprint[0..6]} -i {certificatePath}");
         }
     }
 
@@ -265,17 +275,22 @@ internal sealed class UnixCertificateManager : CertificateManager
 
         try
         {
-            var firefoxDbPath = GetFirefoxCertificateDbDirectory();
-            if (firefoxDbPath != null)
-            {
-                RunScriptAndCaptureOutput(
-                    "certutil",
-                    $"-D -d sql:{firefoxDbPath} -n aspnetcore-localhost-{certificate.Thumbprint[0..6]}");
-            }
+            RemoveCertificateFromNssDb(GetFirefoxCertificateDbDirectory(), certificate);
+            RemoveCertificateFromNssDb(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".pki/nssdb"), certificate);
         }
         catch (Exception)
         {
             throw;
+        }
+    }
+
+    private static void RemoveCertificateFromNssDb(string dbPath, X509Certificate2 certificate)
+    {
+        if (dbPath != null)
+        {
+            RunScriptAndCaptureOutput(
+                "certutil",
+                $"-D -d sql:{dbPath} -n aspnetcore-localhost-{certificate.Thumbprint[0..6]}");
         }
     }
 
