@@ -253,6 +253,11 @@ internal sealed class Program
                 reporter.Output("Cleaning HTTPS development certificates from the machine. This operation might " +
                     "require elevated privileges. If that is the case, a prompt for credentials will be displayed.");
             }
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                reporter.Output("Cleaning HTTPS development certificates from the machine. This operation might " +
+                    "require elevated privileges. If that is the case you will be prompted for your password.");
+            }
 
             manager.CleanupHttpsCertificates();
             reporter.Output("HTTPS development certificates successfully removed from the machine.");
@@ -357,6 +362,17 @@ internal sealed class Program
                     "'sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain <<certificate>>'" +
                     Environment.NewLine + "This command might prompt you for your password to install the certificate " +
                     "on the system keychain. To undo these changes: 'sudo security remove-trusted-cert -d <<certificate>>'");
+            }
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                reporter.Warn("Trusting the HTTPS development certificate was requested. If the certificate is not " +
+                    "already trusted we will run the following commands:" + Environment.NewLine +
+                    "'sudo cp <<certificate>> <<openssl-dir>>/certs/aspnetcore-localhost-<<certificate-thumbprint>>.crt'" + Environment.NewLine +
+                    "'sudo c_rehash'" + Environment.NewLine +
+                    "'certutil -A -d sql:<<firefox-profile-certificate-db>> -t \"C,,\", -n \"aspnetcore-localhost-<<certificate-thumbprint[0..6]>>'" + Environment.NewLine +
+                    "'certutil -A -d sql:~/.pki/nssdb -t \"C,,\", -n \"aspnetcore-localhost-<<certificate-thumbprint[0..6]>>'" + Environment.NewLine +
+                    "These commands might prompt you for your password to trust the certificate. Some commands will only run if we detect that the browser is installed");
             }
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))

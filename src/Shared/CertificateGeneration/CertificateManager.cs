@@ -970,6 +970,69 @@ internal abstract class CertificateManager
 
         [Event(64, Level = EventLevel.Error, Message = "The provided certificate '{0}' is not a valid ASP.NET Core HTTPS development certificate.")]
         internal void NoHttpsDevelopmentCertificate(string description) => WriteEvent(64, description);
+
+        [Event(65, Level = EventLevel.Error, Message = "The Open SSL version '{0}' installed is too old. Open SSL 1.1.1k or higher is required.")]
+        internal void OldOpenSSLVersion(string version) => WriteEvent(65, version);
+
+        [Event(66, Level = EventLevel.Error, Message = "Unable to find 'certutil'. Check on what package to install it from in your distribution.")]
+        internal void MissingCertUtil(string error) => WriteEvent(66, error);
+
+        [Event(67, Level = EventLevel.Verbose, Message = "Found a valid Open SSL version '{0}'.")]
+        internal void ValidOpenSSLVersion(string version) => WriteEvent(67, version);
+
+        [Event(68, Level = EventLevel.Verbose, Message = "'certutil' is available.")]
+        internal void FoundCertUtil() => WriteEvent(68);
+
+        [Event(69, Level = EventLevel.Verbose, Message = "Removing the certificate from the Open SSL trust roots.")]
+        public void UnixRemoveCertificateFromRootStoreStart() => WriteEvent(69);
+
+        [Event(70, Level = EventLevel.Verbose, Message = "Finished removing the certificate from the Open SSL trust roots.")]
+        public void UnixRemoveCertificateFromRootStoreEnd() => WriteEvent(70);
+
+        [Event(71, Level = EventLevel.Verbose, Message = "The certificate was not found in the Open SSL trust roots.")]
+        public void UnixRemoveCertificateFromRootStoreNotFound() => WriteEvent(71);
+
+        [Event(72, Level = EventLevel.Error, Message = "Failed to delete file '{0}'. Error: '{1}'")]
+        public void UnixRemoveCertificateFromRootStoreFailedtoDeleteFile(string path, string error) => WriteEvent(72, path, error);
+
+        [Event(73, Level = EventLevel.Error, Message = "Open SSL 'c_rehash' failed: '{0}'.")]
+        public void UnixRemoveCertificateFromRootStoreOpenSSLRehashFailed(string error) => WriteEvent(73, error);
+
+        [Event(74, Level = EventLevel.Verbose, Message = "Firefox profile not found. Search locations: '{0}', '{1}'.")]
+        internal void UnixFirefoxProfileNotFound(string primary, string secondary) => WriteEvent(74, primary, secondary);
+
+        [Event(75, Level = EventLevel.Verbose, Message = "Firefox profile found at: '{0}'.")]
+        internal void UnixFirefoxProfileFound(string firefoxDbPath) => WriteEvent(75, firefoxDbPath);
+
+        [Event(76, Level = EventLevel.Verbose, Message = "Certificate store for Edge and Chrome not found. Search location: '{0}'.")]
+        internal void UnixCommonChromeAndEdgeCertificateDbNotFound(string primary) => WriteEvent(76, primary);
+
+        [Event(77, Level = EventLevel.Verbose, Message = "Certificate store for Edge and Chrome found at: '{0}'.")]
+        internal void UnixCommonChromeAndEdgeCertificateDbFound(string edgeChromeDbPath) => WriteEvent(77, edgeChromeDbPath);
+
+        [Event(78, Level = EventLevel.Error, Message = "An error has occurred while removing the certificate from the Edge and Chrome trust roots: '{0}'.")]
+        internal void UnixRemoveCertificateFromCommonEdgeChromeRootStoreError(string error) => WriteEvent(78, error);
+
+        [Event(79, Level = EventLevel.Error, Message = "An error has occurred while removing the certificate from the Firefox trust roots: '{0}'.")]
+        internal void UnixRemoveCertificateFromFirefoxRootStoreError(string error) => WriteEvent(79, error);
+
+        [Event(80, Level = EventLevel.Error, Message = "Failed to find the Open SSL certificates directory.")]
+        internal void UnixFailedToLocateOpenSSLDirectory(string error) => WriteEvent(80, error);
+
+        [Event(81, Level = EventLevel.Verbose, Message = "Open SSL directory found at: '{0}'.")]
+        internal void UnixOpenSSLDirectoryLocatedAt(string openSSLDirectory) => WriteEvent(81, openSSLDirectory);
+
+        [Event(82, Level = EventLevel.Error, Message = "An error has occurred while copying the ASP.NET Core certificate to the Open SSL certificate store: '{0}'.")]
+        internal void UnixCopyCertificateToOpenSSLCertificateStoreError(string copyError) => WriteEvent(82, copyError);
+
+        [Event(83, Level = EventLevel.Error, Message = "An error has occurred while running 'c_rehash' to trust the certificate in Open SSL.")]
+        internal void UnixTrustCertificateFromRootStoreOpenSSLRehashFailed(string rehashError) => WriteEvent(83, rehashError);
+
+        [Event(84, Level = EventLevel.Error, Message = "An error has occurred while adding the certificate to the Firefox trust roots: '{0}'.")]
+        internal void UnixTrustCertificateFirefoxRootStoreError(string error) => WriteEvent(84, error);
+
+        [Event(85, Level = EventLevel.Error, Message = "An error has occurred while adding the certificate to the Chrome and Edge trust roots: '{0}'.")]
+        internal void UnixTrustCertificateCommonEdgeChromeRootStoreError(string error) => WriteEvent(85, error);
     }
 
     internal sealed class UserCancelledTrustException : Exception

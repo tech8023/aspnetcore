@@ -71,7 +71,7 @@ internal sealed class UnixCertificateManager : CertificateManager
     {
         if (dbPath != null)
         {
-            var (exitCode, output) = RunScriptAndCaptureOutput(
+            var (exitCode, output, _) = RunScriptAndCaptureOutput(
                 "certutil",
                 $"-L -d sql:{dbPath}",
                 $"(?<certificate>aspnetcore-localhost-{certificate.Thumbprint[0..6]})",
@@ -124,34 +124,78 @@ internal sealed class UnixCertificateManager : CertificateManager
         var tempCertificate = Path.Combine(Path.GetTempPath(), certificateName);
         File.WriteAllText(tempCertificate, certificate.ExportCertificatePem());
 
-        var openSSLDirectory = Path.Combine(GetOpenSSLDirectory(), "certs");
-
-        var (copyExitCode, _) = RunScriptAndCaptureOutput("sudo", $"cp {tempCertificate} {openSSLDirectory}");
-        if (copyExitCode == -1)
+        var openSSLDirectory = GetOpenSSLDirectory();
+        if (openSSLDirectory != null)
         {
-            return;
+            var openSSLCertsDirectory = Path.Combine(openSSLDirectory, "certs");
+            var (copyExitCode, _, copyError) = RunScriptAndCaptureOutput("sudo", $"cp {tempCertificate} {openSSLCertsDirectory}");
+            if (copyExitCode != 0)
+            {
+                Log.UnixCopyCertificateToOpenSSLCertificateStoreError(copyError);
+                return;
+            }
+
+            var (exitCode, _, rehashError) = RunScriptAndCaptureOutput("sudo", $"c_rehash");
+            if (exitCode != 0)
+            {
+                Log.UnixTrustCertificateFromRootStoreOpenSSLRehashFailed(rehashError);
+                return;
+            }
         }
 
-        var (exitCode, _) = RunScriptAndCaptureOutput("sudo", $"c_rehash");
-        if (exitCode != 0)
+        try
         {
-            return;
+            var firefoxDbPath = GetFirefoxCertificateDbDirectory();
+            if (firefoxDbPath != null)
+            {
+                if (!TryTrustCertificateInNssDb(firefoxDbPath, certificate, tempCertificate, out var command, out var error))
+                {
+                    Log.UnixTrustCertificateFirefoxRootStoreError($"Failed to run the command '{command}'.{Environment.NewLine}{error}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.UnixTrustCertificateFirefoxRootStoreError(ex.Message);
+            throw;
         }
 
-        var firefoxDbPath = GetFirefoxCertificateDbDirectory();
-        TrustCertificateInNssDb(firefoxDbPath, certificate, tempCertificate);
-        var chromeAndEdgeDbPath = GetEdgeAndChromeDbDirectory();
-        TrustCertificateInNssDb(chromeAndEdgeDbPath, certificate, tempCertificate);
+        try
+        {
+            var chromeAndEdgeDbPath = GetEdgeAndChromeDbDirectory();
+            if (chromeAndEdgeDbPath != null)
+            {
+                if (!TryTrustCertificateInNssDb(chromeAndEdgeDbPath, certificate, tempCertificate, out var command, out var error))
+                {
+                    Log.UnixTrustCertificateCommonEdgeChromeRootStoreError($"Failed to run the command '{command}'.{Environment.NewLine}{error}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.UnixTrustCertificateCommonEdgeChromeRootStoreError(ex.Message);
+            throw;
+        }
     }
 
-    private static void TrustCertificateInNssDb(string dbPath, X509Certificate2 certificate, string certificatePath)
+    private static bool TryTrustCertificateInNssDb(string dbPath, X509Certificate2 certificate, string certificatePath, out string command, out string error)
     {
+        command = null;
+        error = null;
         if (dbPath != null)
         {
-            RunScriptAndCaptureOutput(
+            var result = RunScriptAndCaptureOutput(
                 "certutil",
                 $"-A -d sql:{dbPath} -t \"C,,\" -n aspnetcore-localhost-{certificate.Thumbprint[0..6]} -i {certificatePath}");
+            if (result.ExitCode != 0)
+            {
+                command = "certutil " + $"-D -d sql:{dbPath} -n aspnetcore-localhost-{certificate.Thumbprint[0..6]}";
+                error = result.Output + Environment.NewLine + result.Error;
+                return false;
+            }
         }
+
+        return true;
     }
 
     private static string GetFirefoxCertificateDbDirectory()
@@ -161,6 +205,7 @@ internal sealed class UnixCertificateManager : CertificateManager
                 EnumerateIfExistsInUserProfile("snap/firefox/common/.mozilla/firefox/", "*.default");
 
     }
+
     private static string EnumerateIfExistsInUserProfile(string subpath, string pattern)
     {
         var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), subpath);
@@ -174,7 +219,7 @@ internal sealed class UnixCertificateManager : CertificateManager
 
     private static string GetOpenSSLDirectory()
     {
-        var (directoryExitCode, openSSLDirectory) = RunScriptAndCaptureOutput(
+        var (directoryExitCode, openSSLDirectory, directoryError) = RunScriptAndCaptureOutput(
             "openssl",
             "version -d",
             "OPENSSLDIR: \"(?<libpath>.+?)\"",
@@ -182,7 +227,12 @@ internal sealed class UnixCertificateManager : CertificateManager
 
         if (directoryExitCode != 0 || string.IsNullOrEmpty(openSSLDirectory))
         {
+            Log.UnixFailedToLocateOpenSSLDirectory(directoryError);
             return null;
+        }
+        else
+        {
+            Log.UnixOpenSSLDirectoryLocatedAt(openSSLDirectory);
         }
 
         return openSSLDirectory;
@@ -190,36 +240,47 @@ internal sealed class UnixCertificateManager : CertificateManager
 
     private static bool CheckPrerequisites()
     {
-        if (!IsSupportedOpenSslVersion())
+        if (!IsSupportedOpenSslVersion(out var version))
         {
+            Log.OldOpenSSLVersion(version);
             return false;
         }
-
-        if (!IsCertUtilAvailable())
+        else
         {
+            Log.ValidOpenSSLVersion(version);
+        }
+
+        if (!IsCertUtilAvailable(out var error))
+        {
+            Log.MissingCertUtil(error);
             return false;
+        }
+        else
+        {
+            Log.FoundCertUtil();
         }
 
         return true;
     }
 
-    private static bool IsCertUtilAvailable()
+    private static bool IsCertUtilAvailable(out string error)
     {
         try
         {
-            var (certUtilExitCode, _) = RunScriptAndCaptureOutput("certutil", "");
+            var (certUtilExitCode, _, certUtilAvailableError) = RunScriptAndCaptureOutput("certutil", "");
+            error = certUtilAvailableError;
             return certUtilExitCode != 127;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            error = ex.ToString();
             return false;
-            throw;
         }
     }
 
-    private static bool IsSupportedOpenSslVersion()
+    private static bool IsSupportedOpenSslVersion(out string output)
     {
-        var (exitCode, output) = RunScriptAndCaptureOutput(
+        (var exitCode, output, _) = RunScriptAndCaptureOutput(
             "openssl",
             "version",
             @"OpenSSL (?<version>\d\.\d.\d(\.\d\w)?)",
@@ -246,23 +307,24 @@ internal sealed class UnixCertificateManager : CertificateManager
         using var process = Process.Start(processInfo);
         process.WaitForExit();
         var output = process.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
         if (process.ExitCode == -1)
         {
-            return new(process.ExitCode, null);
+            return new(process.ExitCode, null, error);
         }
 
         if (regex == null || captureName == null)
         {
-            return new(process.ExitCode, output);
+            return new(process.ExitCode, output, null);
         }
 
         var versionMatch = Regex.Match(output, regex);
         if (!versionMatch.Success)
         {
-            return new(process.ExitCode, null);
+            return new(process.ExitCode, null, null);
         }
 
-        return new(process.ExitCode, versionMatch.Groups[captureName].Value);
+        return new(process.ExitCode, versionMatch.Groups[captureName].Value, null);
     }
 
     protected override void RemoveCertificateFromTrustedRoots(X509Certificate2 certificate)
@@ -270,13 +332,26 @@ internal sealed class UnixCertificateManager : CertificateManager
         var installedCertificate = Path.Combine(GetOpenSSLDirectory(), "certs", $"aspnetcore-localhost-{certificate.Thumbprint}.crt");
         try
         {
+            Log.UnixRemoveCertificateFromRootStoreStart();
             if (!File.Exists(installedCertificate))
             {
-                return;
+                Log.UnixRemoveCertificateFromRootStoreNotFound();
+            }
+            else
+            {
+                var rmResult = RunScriptAndCaptureOutput("sudo", $"rm {installedCertificate}");
+                if (rmResult.ExitCode != 0)
+                {
+                    Log.UnixRemoveCertificateFromRootStoreFailedtoDeleteFile(installedCertificate, rmResult.Error);
+                }
             }
 
-            RunScriptAndCaptureOutput("sudo", $"rm {installedCertificate}");
-            RunScriptAndCaptureOutput("sudo", $"c_rehash");
+            var reHashResult = RunScriptAndCaptureOutput("sudo", $"c_rehash");
+            if (reHashResult.ExitCode != 0)
+            {
+                Log.UnixRemoveCertificateFromRootStoreOpenSSLRehashFailed(reHashResult.Error);
+            }
+            Log.UnixRemoveCertificateFromRootStoreEnd();
         }
         catch (Exception)
         {
@@ -285,23 +360,68 @@ internal sealed class UnixCertificateManager : CertificateManager
 
         try
         {
-            RemoveCertificateFromNssDb(GetFirefoxCertificateDbDirectory(), certificate);
-            RemoveCertificateFromNssDb(GetEdgeAndChromeDbDirectory(), certificate);
+            var firefoxDbPath = GetFirefoxCertificateDbDirectory();
+            if (!string.IsNullOrEmpty(firefoxDbPath))
+            {
+                Log.UnixFirefoxProfileNotFound("~/.mozilla/firefox/", "snap/firefox/common/.mozilla/firefox/");
+            }
+            else
+            {
+                Log.UnixFirefoxProfileFound(firefoxDbPath);
+                if (!TryRemoveCertificateFromNssDb(firefoxDbPath, certificate, out var command, out var error))
+                {
+                    Log.UnixRemoveCertificateFromFirefoxRootStoreError($"Failed to run the command '{command}'.{Environment.NewLine}{error}");
+                }
+
+            }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            throw;
+            Log.UnixRemoveCertificateFromFirefoxRootStoreError(ex.Message);
         }
+
+        try
+        {
+            var edgeAndChromeDbPath = GetEdgeAndChromeDbDirectory();
+            if (!string.IsNullOrEmpty(edgeAndChromeDbPath))
+            {
+                Log.UnixCommonChromeAndEdgeCertificateDbNotFound("~/.pki/nssdb/");
+            }
+            else
+            {
+                Log.UnixCommonChromeAndEdgeCertificateDbFound(edgeAndChromeDbPath);
+                if (!TryRemoveCertificateFromNssDb(edgeAndChromeDbPath, certificate, out var command, out var error))
+                {
+                    Log.UnixRemoveCertificateFromFirefoxRootStoreError($"Failed to run the command '{command}'.{Environment.NewLine}{error}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.UnixRemoveCertificateFromCommonEdgeChromeRootStoreError(ex.Message);
+        }
+
+        Log.UnixRemoveCertificateFromRootStoreEnd();
     }
 
-    private static void RemoveCertificateFromNssDb(string dbPath, X509Certificate2 certificate)
+    private static bool TryRemoveCertificateFromNssDb(string dbPath, X509Certificate2 certificate, out string command, out string error)
     {
+        command = null;
+        error = null;
         if (dbPath != null)
         {
-            RunScriptAndCaptureOutput(
+            var result = RunScriptAndCaptureOutput(
                 "certutil",
                 $"-D -d sql:{dbPath} -n aspnetcore-localhost-{certificate.Thumbprint[0..6]}");
+            if (result.ExitCode != 0)
+            {
+                command = "certutil " + $"-D -d sql:{dbPath} -n aspnetcore-localhost-{certificate.Thumbprint[0..6]}";
+                error = result.Output + Environment.NewLine + result.Error;
+                return false;
+            }
         }
+
+        return true;
     }
 
     protected override IList<X509Certificate2> GetCertificatesToRemove(StoreName storeName, StoreLocation storeLocation)
@@ -309,5 +429,5 @@ internal sealed class UnixCertificateManager : CertificateManager
         return ListCertificates(StoreName.My, StoreLocation.CurrentUser, isValid: false, requireExportable: false);
     }
 
-    private sealed record ProgramOutput(int ExitCode, string Output);
+    private sealed record ProgramOutput(int ExitCode, string Output, string Error);
 }
