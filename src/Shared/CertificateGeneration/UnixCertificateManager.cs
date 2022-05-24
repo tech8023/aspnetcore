@@ -53,12 +53,18 @@ internal sealed class UnixCertificateManager : CertificateManager
             return false;
         }
 
-        if (!IsTrustedInNssDb(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".pki/nssdb"), certificate))
+        if (!IsTrustedInNssDb(GetEdgeAndChromeDbDirectory(), certificate))
         {
             return false;
         }
 
         return true;
+    }
+
+    private static string GetEdgeAndChromeDbDirectory()
+    {
+        var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".pki/nssdb");
+        return Directory.Exists(directory) ? directory : null;
     }
 
     private static bool IsTrustedInNssDb(string dbPath, X509Certificate2 certificate)
@@ -134,7 +140,8 @@ internal sealed class UnixCertificateManager : CertificateManager
 
         var firefoxDbPath = GetFirefoxCertificateDbDirectory();
         TrustCertificateInNssDb(firefoxDbPath, certificate, tempCertificate);
-        TrustCertificateInNssDb(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".pki/nssdb"), certificate, tempCertificate);
+        var chromeAndEdgeDbPath = GetEdgeAndChromeDbDirectory();
+        TrustCertificateInNssDb(chromeAndEdgeDbPath, certificate, tempCertificate);
     }
 
     private static void TrustCertificateInNssDb(string dbPath, X509Certificate2 certificate, string certificatePath)
@@ -153,16 +160,16 @@ internal sealed class UnixCertificateManager : CertificateManager
                 EnumerateIfExistsInUserProfile("snap/firefox/common/.mozilla/firefox/", "*.default-release") ??
                 EnumerateIfExistsInUserProfile("snap/firefox/common/.mozilla/firefox/", "*.default");
 
-        static string EnumerateIfExistsInUserProfile(string subpath, string pattern)
+    }
+    private static string EnumerateIfExistsInUserProfile(string subpath, string pattern)
+    {
+        var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), subpath);
+        if (!Directory.Exists(directory))
         {
-            var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), subpath);
-            if (!Directory.Exists(directory))
-            {
-                return null;
-            }
-
-            return Directory.EnumerateDirectories(directory, pattern).SingleOrDefault();
+            return null;
         }
+
+        return Directory.EnumerateDirectories(directory, pattern).SingleOrDefault();
     }
 
     private static string GetOpenSSLDirectory()
@@ -234,6 +241,7 @@ internal sealed class UnixCertificateManager : CertificateManager
         var processInfo = new ProcessStartInfo(name, arguments)
         {
             RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
         using var process = Process.Start(processInfo);
         process.WaitForExit();
@@ -278,7 +286,7 @@ internal sealed class UnixCertificateManager : CertificateManager
         try
         {
             RemoveCertificateFromNssDb(GetFirefoxCertificateDbDirectory(), certificate);
-            RemoveCertificateFromNssDb(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".pki/nssdb"), certificate);
+            RemoveCertificateFromNssDb(GetEdgeAndChromeDbDirectory(), certificate);
         }
         catch (Exception)
         {
