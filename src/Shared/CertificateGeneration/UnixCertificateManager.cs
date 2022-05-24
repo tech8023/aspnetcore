@@ -30,8 +30,7 @@ internal sealed class UnixCertificateManager : CertificateManager
         try
         {
             File.WriteAllText(tempCertificate, certificate.ExportCertificatePem());
-            using var program = Process.Start("openssl", $"verify {tempCertificate}");
-            program.WaitForExit();
+            var program = RunScriptAndCaptureOutput("openssl", $"verify {tempCertificate}");
             if (program.ExitCode != 0)
             {
                 return false;
@@ -60,7 +59,7 @@ internal sealed class UnixCertificateManager : CertificateManager
                     $"(?<certificate>aspnetcore-localhost-{certificate.Thumbprint[0..6]})",
                     "certificate");
 
-                if(exitCode != 0 || string.IsNullOrEmpty(output))
+                if (exitCode != 0 || string.IsNullOrEmpty(output))
                 {
                     return false;
                 }
@@ -117,18 +116,14 @@ internal sealed class UnixCertificateManager : CertificateManager
 
         var openSSLDirectory = Path.Combine(GetOpenSSLDirectory(), "certs");
 
-        using var copy = Process.Start("sudo", $"cp {tempCertificate} {openSSLDirectory}");
-        copy.WaitForExit();
-
-        if (copy.ExitCode == -1)
+        var (copyExitCode, _) = RunScriptAndCaptureOutput("sudo", $"cp {tempCertificate} {openSSLDirectory}");
+        if (copyExitCode == -1)
         {
             return;
         }
 
-        using var rehash = Process.Start("sudo", $"c_rehash");
-        rehash.WaitForExit();
-
-        if (rehash.ExitCode != 0)
+        var (exitCode, _) = RunScriptAndCaptureOutput("sudo", $"c_rehash");
+        if (exitCode != 0)
         {
             return;
         }
@@ -136,10 +131,9 @@ internal sealed class UnixCertificateManager : CertificateManager
         var firefoxDbPath = GetFirefoxCertificateDbDirectory();
         if (firefoxDbPath != null)
         {
-            var addCertificate = Process.Start(
+            RunScriptAndCaptureOutput(
                 "certutil",
                 $"-A -d sql:{firefoxDbPath} -t \"C,,\" -n aspnetcore-localhost-{certificate.Thumbprint[0..6]} -i {tempCertificate}");
-            addCertificate.WaitForExit();
         }
     }
 
@@ -181,9 +175,16 @@ internal sealed class UnixCertificateManager : CertificateManager
 
     private static bool IsCertUtilAvailable()
     {
-        var certUtil = Process.Start("certutil", "-h");
-        certUtil.WaitForExit();
-        return certUtil.ExitCode != 127;
+        try
+        {
+            var (certUtilExitCode, _) = RunScriptAndCaptureOutput("certutil", "");
+            return certUtilExitCode != 127;
+        }
+        catch (Exception)
+        {
+            return false;
+            throw;
+        }
     }
 
     private static bool IsSupportedOpenSslVersion()
@@ -205,7 +206,7 @@ internal sealed class UnixCertificateManager : CertificateManager
         return int.Parse(major, CultureInfo.InvariantCulture) >= 3 || letter >= 'k';
     }
 
-    private static ProgramOutput RunScriptAndCaptureOutput(string name, string arguments, [StringSyntax("Regex")] string regex, string captureName)
+    private static ProgramOutput RunScriptAndCaptureOutput(string name, string arguments, [StringSyntax("Regex")] string regex = null, string captureName = null)
     {
         var processInfo = new ProcessStartInfo(name, arguments)
         {
@@ -218,6 +219,12 @@ internal sealed class UnixCertificateManager : CertificateManager
         {
             return new(process.ExitCode, null);
         }
+
+        if (regex == null || captureName == null)
+        {
+            return new(process.ExitCode, output);
+        }
+
         var versionMatch = Regex.Match(output, regex);
         if (!versionMatch.Success)
         {
@@ -237,10 +244,8 @@ internal sealed class UnixCertificateManager : CertificateManager
                 return;
             }
 
-            using var delete = Process.Start("sudo", $"rm {installedCertificate}");
-            delete.WaitForExit();
-            using var rehash = Process.Start("sudo", $"c_rehash");
-            rehash.WaitForExit();
+            RunScriptAndCaptureOutput("sudo", $"rm {installedCertificate}");
+            RunScriptAndCaptureOutput("sudo", $"c_rehash");
         }
         catch (Exception)
         {
@@ -252,10 +257,9 @@ internal sealed class UnixCertificateManager : CertificateManager
             var firefoxDbPath = GetFirefoxCertificateDbDirectory();
             if (firefoxDbPath != null)
             {
-                var removeCertificate = Process.Start(
+                RunScriptAndCaptureOutput(
                     "certutil",
                     $"-D -d sql:{firefoxDbPath} -n aspnetcore-localhost-{certificate.Thumbprint[0..6]}");
-                removeCertificate.WaitForExit();
             }
         }
         catch (Exception)
