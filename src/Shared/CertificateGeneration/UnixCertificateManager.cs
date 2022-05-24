@@ -10,7 +10,6 @@ using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
-using Microsoft.AspNetCore.DeveloperCertificates.Tools;
 
 namespace Microsoft.AspNetCore.Certificates.Generation;
 
@@ -33,7 +32,10 @@ internal sealed class UnixCertificateManager : CertificateManager
             File.WriteAllText(tempCertificate, certificate.ExportCertificatePem());
             using var program = Process.Start("openssl", $"verify {tempCertificate}");
             program.WaitForExit();
-            return program.ExitCode == 0;
+            if (program.ExitCode != 0)
+            {
+                return false;
+            }
         }
         catch (Exception)
         {
@@ -46,6 +48,30 @@ internal sealed class UnixCertificateManager : CertificateManager
                 File.Delete(tempCertificate);
             }
         }
+
+        try
+        {
+            var firefoxDbPath = GetFirefoxCertificateDbDirectory();
+            if (firefoxDbPath != null)
+            {
+                var (exitCode, output) = RunScriptAndCaptureOutput(
+                    "certutil",
+                    $"-L -d sql:{firefoxDbPath}",
+                    $"(?<certificate>aspnetcore-localhost-{certificate.Thumbprint[0..6]})",
+                    "certificate");
+
+                if(exitCode != 0 || string.IsNullOrEmpty(output))
+                {
+                    return false;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            throw;
+        }
+
+        return true;
     }
 
     protected override X509Certificate2 SaveCertificateCore(X509Certificate2 certificate, StoreName storeName, StoreLocation storeLocation)
@@ -112,7 +138,7 @@ internal sealed class UnixCertificateManager : CertificateManager
         {
             var addCertificate = Process.Start(
                 "certutil",
-                $"sql:{firefoxDbPath} -A -t \"C,,\" -n {certificateName} -i {tempCertificate}");
+                $"-A -d sql:{firefoxDbPath} -t \"C,,\" -n aspnetcore-localhost-{certificate.Thumbprint[0..6]} -i {tempCertificate}");
             addCertificate.WaitForExit();
         }
     }
@@ -215,6 +241,22 @@ internal sealed class UnixCertificateManager : CertificateManager
             delete.WaitForExit();
             using var rehash = Process.Start("sudo", $"c_rehash");
             rehash.WaitForExit();
+        }
+        catch (Exception)
+        {
+            throw;
+        }
+
+        try
+        {
+            var firefoxDbPath = GetFirefoxCertificateDbDirectory();
+            if (firefoxDbPath != null)
+            {
+                var removeCertificate = Process.Start(
+                    "certutil",
+                    $"-D -d sql:{firefoxDbPath} -n aspnetcore-localhost-{certificate.Thumbprint[0..6]}");
+                removeCertificate.WaitForExit();
+            }
         }
         catch (Exception)
         {
