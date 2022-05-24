@@ -7,8 +7,10 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Linq;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.DeveloperCertificates.Tools;
 
 namespace Microsoft.AspNetCore.Certificates.Generation;
 
@@ -83,7 +85,8 @@ internal sealed class UnixCertificateManager : CertificateManager
             return;
         }
 
-        var tempCertificate = Path.Combine(Path.GetTempPath(), $"aspnetcore-localhost-{certificate.Thumbprint}.crt");
+        var certificateName = $"aspnetcore-localhost-{certificate.Thumbprint}.crt";
+        var tempCertificate = Path.Combine(Path.GetTempPath(), certificateName);
         File.WriteAllText(tempCertificate, certificate.ExportCertificatePem());
 
         var openSSLDirectory = Path.Combine(GetOpenSSLDirectory(), "certs");
@@ -103,6 +106,20 @@ internal sealed class UnixCertificateManager : CertificateManager
         {
             return;
         }
+
+        var firefoxDbPath = GetFirefoxCertificateDbDirectory();
+        if (firefoxDbPath != null)
+        {
+            var addCertificate = Process.Start(
+                "certutil",
+                $"sql:{firefoxDbPath} -A -t \"C,,\" -n {certificateName} -i {tempCertificate}");
+            addCertificate.WaitForExit();
+        }
+    }
+
+    private static string GetFirefoxCertificateDbDirectory()
+    {
+        return Directory.EnumerateDirectories(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mozilla/firefox/"), "*.default-release").SingleOrDefault();
     }
 
     private static string GetOpenSSLDirectory()
@@ -128,7 +145,19 @@ internal sealed class UnixCertificateManager : CertificateManager
             return false;
         }
 
+        if (!IsCertUtilAvailable())
+        {
+            return false;
+        }
+
         return true;
+    }
+
+    private static bool IsCertUtilAvailable()
+    {
+        var certUtil = Process.Start("certutil", "-h");
+        certUtil.WaitForExit();
+        return certUtil.ExitCode != 127;
     }
 
     private static bool IsSupportedOpenSslVersion()

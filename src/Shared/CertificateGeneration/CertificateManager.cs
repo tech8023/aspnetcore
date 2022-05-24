@@ -177,7 +177,7 @@ internal abstract class CertificateManager
         var result = EnsureCertificateResult.Succeeded;
 
         var currentUserCertificates = ListCertificates(StoreName.My, StoreLocation.CurrentUser, isValid: true, requireExportable: true);
-        var trustedCertificates = ListCertificates(StoreName.My, StoreLocation.LocalMachine, isValid: true, requireExportable: true);
+        var trustedCertificates = ListCertificates(StoreName.Root, StoreLocation.LocalMachine, isValid: true, requireExportable: true);
         var certificates = currentUserCertificates.Concat(trustedCertificates);
 
         var filteredCertificates = certificates.Where(c => c.Subject == Subject);
