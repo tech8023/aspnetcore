@@ -78,7 +78,7 @@ internal abstract class CertificateManager
         {
             using var store = new X509Store(storeName, location);
             store.Open(OpenFlags.ReadOnly);
-            certificates.AddRange(store.Certificates.OfType<X509Certificate2>());
+            PopulateCertificatesFromStore(store, certificates);
             IEnumerable<X509Certificate2> matchingCertificates = certificates;
             matchingCertificates = matchingCertificates
                 .Where(c => HasOid(c, AspNetHttpsOid));
@@ -159,6 +159,11 @@ internal abstract class CertificateManager
             currentDate <= certificate.NotAfter &&
             (!requireExportable || IsExportable(certificate)) &&
             GetCertificateVersion(certificate) >= AspNetHttpsCertificateVersion;
+    }
+
+    protected virtual void PopulateCertificatesFromStore(X509Store store, List<X509Certificate2> certificates)
+    {
+        certificates.AddRange(store.Certificates.OfType<X509Certificate2>());
     }
 
     public IList<X509Certificate2> GetHttpsCertificates() =>
@@ -745,7 +750,7 @@ internal abstract class CertificateManager
         }
     }
 
-    private static void RemoveCertificateFromUserStore(X509Certificate2 certificate)
+    protected virtual void RemoveCertificateFromUserStore(X509Certificate2 certificate)
     {
         try
         {
@@ -753,14 +758,7 @@ internal abstract class CertificateManager
             {
                 Log.RemoveCertificateFromUserStoreStart(GetDescription(certificate));
             }
-            using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
-            store.Open(OpenFlags.ReadWrite);
-            var matching = store.Certificates
-                .OfType<X509Certificate2>()
-                .Single(c => c.SerialNumber == certificate.SerialNumber);
-
-            store.Remove(matching);
-            store.Close();
+            RemoveCertificateFromUserStoreCore(certificate);
             Log.RemoveCertificateFromUserStoreEnd();
         }
         catch (Exception ex) when (Log.IsEnabled())
@@ -768,6 +766,18 @@ internal abstract class CertificateManager
             Log.RemoveCertificateFromUserStoreError(ex.ToString());
             throw;
         }
+    }
+
+    protected virtual void RemoveCertificateFromUserStoreCore(X509Certificate2 certificate)
+    {
+        using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
+        store.Open(OpenFlags.ReadWrite);
+        var matching = store.Certificates
+            .OfType<X509Certificate2>()
+            .Single(c => c.SerialNumber == certificate.SerialNumber);
+
+        store.Remove(matching);
+        store.Close();
     }
 
     internal static string ToCertificateDescription(IEnumerable<X509Certificate2> certificates)
@@ -944,8 +954,8 @@ internal abstract class CertificateManager
         [Event(55, Level = EventLevel.Verbose, Message = "Finished importing the certificate to the keychain.")]
         internal void MacOSAddCertificateToKeyChainEnd() => WriteEvent(55);
 
-        [Event(56, Level = EventLevel.Error, Message = "An error has occurred while importing the certificate to the keychain: {0}.")]
-        internal void MacOSAddCertificateToKeyChainError(int exitCode) => WriteEvent(56, exitCode);
+        [Event(56, Level = EventLevel.Error, Message = "An error has occurred while saving the certificate in the user profile folder: {0}.")]
+        internal void MacOSAddCertificateToKeyChainError(string errorMessage) => WriteEvent(56, errorMessage);
 
         [Event(57, Level = EventLevel.Verbose, Message = "Writing the certificate to: {0}.")]
         public void WritePemKeyToDisk(string path) => WriteEvent(57, path);
