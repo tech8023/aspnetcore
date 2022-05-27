@@ -17,9 +17,8 @@ internal sealed class MacOSCertificateManager : CertificateManager
 {
     private const string CertificateSubjectRegex = "CN=(.*[^,]+).*";
     private static readonly string MacOSUserKeyChain = Environment.GetEnvironmentVariable("HOME") + "/Library/Keychains/login.keychain-db";
-    private const string MacOSSystemKeyChain = "/Library/Keychains/System.keychain";
     private const string MacOSFindCertificateCommandLine = "security";
-    private const string MacOSFindCertificateCommandLineArgumentsFormat = $"find-certificate -c {{0}} -a -Z -p {MacOSSystemKeyChain}";
+    private static readonly string MacOSFindCertificateCommandLineArgumentsFormat = $"find-certificate -c {{0}} -a -Z -p {MacOSUserKeyChain}";
     private const string MacOSFindCertificateOutputRegex = "SHA-1 hash: ([0-9A-Z]+)";
     private const string MacOSRemoveCertificateTrustCommandLine = "security";
     private const string MacOSRemoveCertificateTrustCommandLineArgumentsFormat = "remove-trusted-cert {0}";
