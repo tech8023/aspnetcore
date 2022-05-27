@@ -150,7 +150,10 @@ internal sealed class MacOSCertificateManager : CertificateManager
                 MacOSVerifyCertificateCommandLine,
                 string.Format(CultureInfo.InvariantCulture, MacOSVerifyCertificateCommandLineArgumentsFormat, tmpFile, subject))
             {
-                RedirectStandardOutput = true
+                RedirectStandardOutput = true,
+                // Do this to avoid showing output to the console when the cert is not trusted. It is trivial to export the cert
+                // and replicate the command to see details.
+                RedirectStandardError = true,
             });
             checkTrustProcess!.WaitForExit();
             return checkTrustProcess.ExitCode == 0;
