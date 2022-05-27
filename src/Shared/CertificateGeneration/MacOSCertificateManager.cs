@@ -17,9 +17,8 @@ internal sealed class MacOSCertificateManager : CertificateManager
 {
     private const string CertificateSubjectRegex = "CN=(.*[^,]+).*";
     private static readonly string MacOSUserKeyChain = Environment.GetEnvironmentVariable("HOME") + "/Library/Keychains/login.keychain-db";
-    private const string MacOSFindCertificateCommandLine = "security";
-    private static readonly string MacOSFindCertificateCommandLineArgumentsFormat = $"find-certificate -c {{0}} -a -Z -p {MacOSUserKeyChain}";
-    private const string MacOSFindCertificateOutputRegex = "SHA-1 hash: ([0-9A-Z]+)";
+    private const string MacOSVerifyCertificateCommandLine = "security";
+    private const string MacOSVerifyCertificateCommandLineArgumentsFormat = $"verify-cert -c {{0}} -s {{1}}";
     private const string MacOSRemoveCertificateTrustCommandLine = "security";
     private const string MacOSRemoveCertificateTrustCommandLineArgumentsFormat = "remove-trusted-cert {0}";
     private const string MacOSDeleteCertificateCommandLine = "sudo";
@@ -137,23 +136,32 @@ internal sealed class MacOSCertificateManager : CertificateManager
 
     public override bool IsTrusted(X509Certificate2 certificate)
     {
-        var subjectMatch = Regex.Match(certificate.Subject, CertificateSubjectRegex, RegexOptions.Singleline, MaxRegexTimeout);
-        if (!subjectMatch.Success)
+        var tmpFile = Path.GetTempFileName();
+        try
         {
-            throw new InvalidOperationException($"Can't determine the subject for the certificate with subject '{certificate.Subject}'.");
+            ExportCertificate(certificate, tmpFile, includePrivateKey: false, password: null, CertificateKeyExportFormat.Pem);
+            var subjectMatch = Regex.Match(certificate.Subject, CertificateSubjectRegex, RegexOptions.Singleline, MaxRegexTimeout);
+            if (!subjectMatch.Success)
+            {
+                throw new InvalidOperationException($"Can't determine the subject for the certificate with subject '{certificate.Subject}'.");
+            }
+            var subject = subjectMatch.Groups[1].Value;
+            using var checkTrustProcess = Process.Start(new ProcessStartInfo(
+                MacOSVerifyCertificateCommandLine,
+                string.Format(CultureInfo.InvariantCulture, MacOSVerifyCertificateCommandLineArgumentsFormat, tmpFile, subject))
+            {
+                RedirectStandardOutput = true
+            });
+            checkTrustProcess!.WaitForExit();
+            return checkTrustProcess.ExitCode == 0;
         }
-        var subject = subjectMatch.Groups[1].Value;
-        using var checkTrustProcess = Process.Start(new ProcessStartInfo(
-            MacOSFindCertificateCommandLine,
-            string.Format(CultureInfo.InvariantCulture, MacOSFindCertificateCommandLineArgumentsFormat, subject))
+        finally
         {
-            RedirectStandardOutput = true
-        });
-        var output = checkTrustProcess!.StandardOutput.ReadToEnd();
-        checkTrustProcess.WaitForExit();
-        var matches = Regex.Matches(output, MacOSFindCertificateOutputRegex, RegexOptions.Multiline, MaxRegexTimeout);
-        var hashes = matches.OfType<Match>().Select(m => m.Groups[1].Value).ToList();
-        return hashes.Any(h => string.Equals(h, certificate.Thumbprint, StringComparison.Ordinal));
+            if (File.Exists(tmpFile))
+            {
+                File.Delete(tmpFile);
+            }
+        }
     }
 
     protected override void RemoveCertificateFromTrustedRoots(X509Certificate2 certificate)
