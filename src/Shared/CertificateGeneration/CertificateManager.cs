@@ -948,10 +948,10 @@ internal abstract class CertificateManager
         [Event(53, Level = EventLevel.Error, Message = "An error has occurred while correcting the certificate state: {0}.")]
         public void CorrectCertificateStateError(string error) => WriteEvent(53, error);
 
-        [Event(54, Level = EventLevel.Verbose, Message = "Importing the certificate {1} to the keychain '{0}'.")]
-        internal void MacOSAddCertificateToKeyChainStart(string keychain, string certificate) => WriteEvent(54, keychain, certificate);
+        [Event(54, Level = EventLevel.Verbose, Message = "Saving the certificate {1} to the user profile folder '{0}'.")]
+        internal void MacOSSaveCertificateInUserProfileFolder(string keychain, string certificate) => WriteEvent(54, keychain, certificate);
 
-        [Event(55, Level = EventLevel.Verbose, Message = "Finished importing the certificate to the keychain.")]
+        [Event(55, Level = EventLevel.Verbose, Message = "Finished saving the certificate to the user profile folder.")]
         internal void MacOSAddCertificateToKeyChainEnd() => WriteEvent(55);
 
         [Event(56, Level = EventLevel.Error, Message = "An error has occurred while saving the certificate in the user profile folder: {0}.")]

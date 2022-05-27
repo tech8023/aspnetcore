@@ -22,9 +22,7 @@ internal sealed class MacOSCertificateManager : CertificateManager
     private const string MacOSFindCertificateCommandLineArgumentsFormat = $"find-certificate -c {{0}} -a -Z -p {MacOSSystemKeyChain}";
     private const string MacOSFindCertificateOutputRegex = "SHA-1 hash: ([0-9A-Z]+)";
     private const string MacOSRemoveCertificateTrustCommandLine = "security";
-    private const string MacOSRemoveCertificateTrustCommandLineArgumentsFormat = "remove-trusted-cert -d {0}";
-    private const string MacOSDeleteCertificateCommandLine = "sudo";
-    private const string MacOSDeleteCertificateCommandLineArgumentsFormat = "security delete-certificate -Z {0} {1}";
+    private const string MacOSRemoveCertificateTrustCommandLineArgumentsFormat = "remove-trusted-cert {0}";
     private const string MacOSTrustCertificateCommandLine = "security";
     private static readonly string MacOSTrustCertificateCommandLineArguments = $"add-trusted-cert -r trustRoot -p basic -p ssl -k {MacOSUserKeyChain} ";
     private static readonly string MacOSUserHttpsCertificateLocation = Path.Combine(Environment.GetEnvironmentVariable("HOME")!, ".aspnet", "https");
@@ -177,7 +175,11 @@ internal sealed class MacOSCertificateManager : CertificateManager
             {
             }
 
-            RemoveCertificateFromKeyChain(MacOSSystemKeyChain, certificate);
+            var certificatePath = Path.Combine(MacOSUserHttpsCertificateLocation, GetCertificateFileName(certificate));
+            if (File.Exists(certificatePath))
+            {
+                File.Delete(certificatePath);
+            }
         }
         else
         {
@@ -224,43 +226,6 @@ internal sealed class MacOSCertificateManager : CertificateManager
         }
     }
 
-    private static void RemoveCertificateFromKeyChain(string keyChain, X509Certificate2 certificate)
-    {
-        var processInfo = new ProcessStartInfo(
-            MacOSDeleteCertificateCommandLine,
-            string.Format(
-                CultureInfo.InvariantCulture,
-                MacOSDeleteCertificateCommandLineArgumentsFormat,
-                certificate.Thumbprint.ToUpperInvariant(),
-                keyChain
-            ))
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-
-        if (Log.IsEnabled())
-        {
-            Log.MacOSRemoveCertificateFromKeyChainStart(keyChain, GetDescription(certificate));
-        }
-
-        using (var process = Process.Start(processInfo))
-        {
-            var output = process!.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
-            process.WaitForExit();
-
-            if (process.ExitCode != 0)
-            {
-                Log.MacOSRemoveCertificateFromKeyChainError(process.ExitCode);
-                throw new InvalidOperationException($@"There was an error removing the certificate with thumbprint '{certificate.Thumbprint}'.
-
-{output}");
-            }
-        }
-
-        Log.MacOSRemoveCertificateFromKeyChainEnd();
-    }
-
     // We don't have a good way of checking on the underlying implementation if ti is exportable, so just return true.
     protected override bool IsExportable(X509Certificate2 c) => true;
 
@@ -268,7 +233,7 @@ internal sealed class MacOSCertificateManager : CertificateManager
     {
         if (Log.IsEnabled())
         {
-            Log.MacOSAddCertificateToKeyChainStart(MacOSUserKeyChain, GetDescription(certificate));
+            Log.MacOSSaveCertificateInUserProfileFolder(MacOSUserKeyChain, GetDescription(certificate));
         }
 
         try
@@ -280,7 +245,7 @@ internal sealed class MacOSCertificateManager : CertificateManager
         }
         catch (Exception ex)
         {
-                Log.MacOSAddCertificateToKeyChainError($@"There was an error importing the certificate into the user key chain '{certificate.Thumbprint}'.
+                Log.MacOSAddCertificateToKeyChainError($@"There was an error saving the certificate into the user profile folder '{certificate.Thumbprint}'.
 
 {ex.Message}");
         }
